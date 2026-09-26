@@ -1,19 +1,38 @@
 import { useEffect, useState } from 'react';
 import { Clock, ChefHat, CheckCircle2, XCircle, Coffee, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 interface Props {
   tableNumber: number;
+  orderId?: string;
   onResubmit: () => void;
 }
 
-export function CustomerOrderStatus({ tableNumber, onResubmit }: Props) {
+export function CustomerOrderStatus({ tableNumber, orderId, onResubmit }: Props) {
   const [status, setStatus] = useState<'pending' | 'confirmed'>('pending');
 
   useEffect(() => {
+    if (isSupabaseConfigured && orderId) {
+      let active = true;
+      const loadOrder = async () => {
+        const { data } = await supabase.from('orders').select('status').eq('id', orderId).maybeSingle();
+        if (active && (data?.status === 'confirmed' || data?.status === 'preparing' || data?.status === 'ready' || data?.status === 'served')) {
+          setStatus('confirmed');
+        }
+      };
+      void loadOrder();
+      const channel = supabase
+        .channel(`customer-order-${orderId}`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, payload => {
+          if (payload.new.status === 'confirmed' || payload.new.status === 'preparing' || payload.new.status === 'ready' || payload.new.status === 'served') setStatus('confirmed');
+        })
+        .subscribe();
+      return () => { active = false; void supabase.removeChannel(channel); };
+    }
     const timer = setTimeout(() => setStatus('confirmed'), 4000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [orderId]);
 
   const steps = [
     { key: 'submitted', label: 'Order Submitted', desc: 'Your order has been sent to the waiter', icon: Coffee },

@@ -39,6 +39,7 @@ import { CustomerCartReview } from '@/screens/customer/CustomerCartReview';
 import { CustomerOrderStatus } from '@/screens/customer/CustomerOrderStatus';
 import { CustomerRejected } from '@/screens/customer/CustomerRejected';
 import type { MenuItem } from '@/types';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 interface Session {
   role: Role;
@@ -55,12 +56,15 @@ const roleNames: Record<Role, string> = {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [activeScreen, setActiveScreen] = useState<string>('');
+  const [activeScreen, setActiveScreen] = useState<string>(() => (
+    window.location.pathname.startsWith('/menu/') ? 'customer-menu' : ''
+  ));
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [editItemId, setEditItemId] = useState<string | undefined>(undefined);
   const [customerCart, setCustomerCart] = useState<{ item: MenuItem; qty: number }[]>([]);
   const [customerRejected, setCustomerRejected] = useState<string | undefined>(undefined);
+  const [customerOrderId, setCustomerOrderId] = useState<string | undefined>(undefined);
 
   const handleLogin = (role: Role, name: string) => {
     setSession({ role, name });
@@ -77,10 +81,11 @@ export default function App() {
     setSelectedTable(null);
     setOrderItems([]);
     setCustomerCart([]);
+    setCustomerOrderId(undefined);
   };
 
-  // Customer flow doesn't use AppShell
-  if (session?.role === 'customer') {
+  // Customer QR URLs are public and do not use AppShell or staff authentication.
+  if (session?.role === 'customer' || window.location.pathname.startsWith('/menu/')) {
     return (
       <CustomerFlow
         screen={activeScreen}
@@ -90,6 +95,25 @@ export default function App() {
         onNavigate={setActiveScreen}
         onExit={handleLogout}
         setRejectedReason={setCustomerRejected}
+        orderId={customerOrderId}
+        onSubmitOrder={async cart => {
+          if (!isSupabaseConfigured) {
+            setCustomerOrderId('demo-order');
+            setActiveScreen('customer-status');
+            return;
+          }
+          const qrToken = window.location.pathname.startsWith('/menu/')
+            ? window.location.pathname.split('/menu/')[1]
+            : new URLSearchParams(window.location.search).get('table_token');
+          if (!qrToken) throw new Error('Open this menu from a table QR code to submit an order.');
+          const { data, error } = await supabase.rpc('submit_customer_order', {
+            p_qr_token: qrToken,
+            p_items: cart.map(entry => ({ menu_item_id: entry.item.id, quantity: entry.qty, notes: entry.notes || null })),
+          });
+          if (error) throw error;
+          setCustomerOrderId(data);
+          setActiveScreen('customer-status');
+        }}
       />
     );
   }
@@ -258,9 +282,11 @@ interface CustomerFlowProps {
   onNavigate: (screen: string) => void;
   onExit: () => void;
   setRejectedReason: (reason: string | undefined) => void;
+  orderId?: string;
+  onSubmitOrder: (cart: { item: MenuItem; qty: number; notes?: string }[]) => Promise<void>;
 }
 
-function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExit, setRejectedReason }: CustomerFlowProps) {
+function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExit, setRejectedReason, orderId, onSubmitOrder }: CustomerFlowProps) {
   const tableNumber = 7;
 
   switch (screen) {
@@ -276,7 +302,7 @@ function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExi
         <CustomerCartReview
           tableNumber={tableNumber}
           cart={cart}
-          onSubmit={() => onNavigate('customer-status')}
+          onSubmit={onSubmitOrder}
           onBack={() => onNavigate('customer-menu')}
         />
       );
@@ -284,6 +310,7 @@ function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExi
       return (
         <CustomerOrderStatus
           tableNumber={tableNumber}
+          orderId={orderId}
           onResubmit={() => { setCart([]); onNavigate('customer-menu'); }}
         />
       );

@@ -13,13 +13,15 @@ interface CartEntry {
 interface Props {
   tableNumber: number;
   cart: CartEntry[];
-  onSubmit: () => void;
+  onSubmit: (cart: CartEntry[]) => Promise<void>;
   onBack: () => void;
 }
 
 export function CustomerCartReview({ tableNumber, cart: initialCart, onSubmit, onBack }: Props) {
   const [cart, setCart] = useState<CartEntry[]>(initialCart);
   const [notesId, setNotesId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const subtotal = cart.reduce((s, e) => s + e.item.price * e.qty, 0);
   const service = Math.round(subtotal * 0.1);
@@ -125,8 +127,23 @@ export function CustomerCartReview({ tableNumber, cart: initialCart, onSubmit, o
       </div>
 
       <div className="border-t border-neutral-200 bg-white p-4">
-        <Button fullWidth size="lg" onClick={onSubmit}>
-          <Send className="w-5 h-5" /> Submit Order
+        {error && <p className="text-sm text-status-cancelled mb-3">{error}</p>}
+        <Button fullWidth size="lg" disabled={submitting} onClick={async () => {
+          setSubmitting(true);
+          setError('');
+          try {
+            await onSubmit(cart);
+          } catch (submitError) {
+            const message = submitError instanceof Error
+              ? submitError.message
+              : typeof submitError === 'object' && submitError !== null && 'message' in submitError
+                ? String(submitError.message)
+                : 'Unable to submit this order.';
+            setError(message);
+            setSubmitting(false);
+          }
+        }}>
+          <Send className="w-5 h-5" /> {submitting ? 'Submitting...' : 'Submit Order'}
         </Button>
       </div>
     </div>
