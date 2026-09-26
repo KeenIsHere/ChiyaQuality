@@ -5,9 +5,11 @@
 Create `project/.env.local` with these two values from Supabase Dashboard > Project Settings > API:
 
 ```env
-VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_ANON_KEY=your-publishable-anon-key
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-anon-key
 ```
+
+The Vite aliases `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are also supported.
 
 The anon/publishable key is safe for browser use when Row Level Security is enabled. Never put the service-role key, database password, JWT secret, or SMTP credentials in this file or in the frontend.
 
