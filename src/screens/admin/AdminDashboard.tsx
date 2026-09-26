@@ -3,7 +3,6 @@ import {
   ArrowRight, Clock, AlertCircle
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/status';
-import type { NavItem } from '@/components/ui/AppShell';
 
 interface Props {
   onQuickLink: (key: string) => void;

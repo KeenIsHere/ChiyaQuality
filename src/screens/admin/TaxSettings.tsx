@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Percent, Save, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
 
 export function TaxSettings() {
   const [taxRate, setTaxRate] = useState('13');
@@ -10,7 +11,21 @@ export function TaxSettings() {
   const [serviceEnabled, setServiceEnabled] = useState(true);
   const { toasts, showToast, closeToast } = useToast();
 
-  const handleSave = () => {
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase.from('settings').select('tax_percent, service_charge_percent').eq('id', 1).single();
+      if (error) { showToast('error', error.message); return; }
+      setTaxRate(String(data.tax_percent));
+      setServiceRate(String(data.service_charge_percent));
+      setTaxEnabled(Number(data.tax_percent) > 0);
+      setServiceEnabled(Number(data.service_charge_percent) > 0);
+    };
+    void load();
+  }, [showToast]);
+
+  const handleSave = async () => {
+    const { error } = await supabase.from('settings').upsert({ id: 1, tax_percent: taxEnabled ? Number(taxRate) || 0 : 0, service_charge_percent: serviceEnabled ? Number(serviceRate) || 0 : 0 });
+    if (error) { showToast('error', error.message); return; }
     showToast('success', 'Tax and service charge settings saved.');
   };
 

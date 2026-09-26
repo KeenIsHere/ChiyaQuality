@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { Plus, QrCode, Trash2, Download, Printer, Users, X } from 'lucide-react';
-import { tables as initialTables } from '@/data';
+import { useEffect, useState } from 'react';
+import { Plus, QrCode, Trash2, Download, Printer, Users } from 'lucide-react';
 import { tableStatusConfig } from '@/lib/status';
 import { TableStatusBadge } from '@/components/ui/TableStatusBadge';
 import { Button } from '@/components/ui/Button';
@@ -8,26 +7,40 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import type { Table } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 export function TableManagement() {
-  const [tables, setTables] = useState<Table[]>(initialTables);
+  const [tables, setTables] = useState<Table[]>([]);
   const [qrModal, setQrModal] = useState<Table | null>(null);
   const [addModal, setAddModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState<Table | null>(null);
   const [newSeats, setNewSeats] = useState('4');
   const { toasts, showToast, closeToast } = useToast();
 
-  const handleAdd = () => {
-    const nextNum = Math.max(...tables.map(t => t.number)) + 1;
-    const newTable: Table = { id: `t${nextNum}`, number: nextNum, seats: parseInt(newSeats) || 4, status: 'available' };
-    setTables(prev => [...prev, newTable]);
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase.from('tables').select('id, table_code, seats, status, qr_token').order('table_code');
+      if (error) showToast('error', error.message);
+      setTables((data || []).map(table => ({ id: table.id, number: Number.parseInt(table.table_code, 10) || 0, seats: table.seats, status: table.status, qrToken: table.qr_token })));
+    };
+    void load();
+  }, [showToast]);
+
+  const handleAdd = async () => {
+    const nextNum = Math.max(0, ...tables.map(t => t.number)) + 1;
+    const { data, error } = await supabase.from('tables').insert({ table_code: String(nextNum), seats: parseInt(newSeats, 10) || 4 }).select('id, table_code, seats, status, qr_token').single();
+    if (error) { showToast('error', error.message); return; }
+    const newTable: Table = { id: data.id, number: Number.parseInt(data.table_code, 10), seats: data.seats, status: data.status, qrToken: data.qr_token };
+    setTables(prev => [...prev, newTable].sort((a, b) => a.number - b.number));
     showToast('success', `Table ${nextNum} added.`);
     setAddModal(false);
     setNewSeats('4');
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteModal) return;
+    const { error } = await supabase.from('tables').delete().eq('id', deleteModal.id);
+    if (error) { showToast('error', error.message); return; }
     setTables(prev => prev.filter(t => t.id !== deleteModal.id));
     showToast('info', `Table ${deleteModal.number} removed.`);
     setDeleteModal(null);
@@ -95,7 +108,7 @@ export function TableManagement() {
           </div>
           <p className="text-sm font-semibold text-neutral-800 mt-4">Table {qrModal?.number}</p>
           <p className="text-xs text-neutral-500 mt-1">Scan to view menu and place order</p>
-          <p className="text-xs text-neutral-400 mt-2 font-mono">chiyaquality.app/t/{qrModal?.number}</p>
+          <p className="text-xs text-neutral-400 mt-2 font-mono break-all">{window.location.origin}/menu/{qrModal?.qrToken}</p>
         </div>
       </Modal>
 

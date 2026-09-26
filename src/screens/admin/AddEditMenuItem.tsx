@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Upload, ImageIcon } from 'lucide-react';
-import { menuItems, menuCategories } from '@/data';
 import { Button } from '@/components/ui/Button';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   itemId?: string;
@@ -10,23 +10,43 @@ interface Props {
 }
 
 export function AddEditMenuItem({ itemId, onBack }: Props) {
-  const existing = itemId ? menuItems.find(i => i.id === itemId) : undefined;
-  const [name, setName] = useState(existing?.name || '');
-  const [description, setDescription] = useState(existing?.description || '');
-  const [price, setPrice] = useState(existing ? String(existing.price) : '');
-  const [category, setCategory] = useState(existing?.category || menuCategories[0]);
-  const [available, setAvailable] = useState(existing?.available ?? true);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [price, setPrice] = useState('');
+  const [category, setCategory] = useState('');
+  const [available, setAvailable] = useState(true);
   const { toasts, showToast, closeToast } = useToast();
 
   const isEdit = !!itemId;
 
-  const handleSave = () => {
+  useEffect(() => {
+    const load = async () => {
+      const { data: categoryRows, error: categoryError } = await supabase.from('categories').select('id, name').order('display_order');
+      if (categoryError) { showToast('error', categoryError.message); return; }
+      setCategories(categoryRows || []);
+      if (categoryRows?.[0]) setCategory(current => current || categoryRows[0].id);
+      if (itemId) {
+        const { data: item, error } = await supabase.from('menu_items').select('name, description, price, category_id, is_available').eq('id', itemId).single();
+        if (error) { showToast('error', error.message); return; }
+        setName(item.name); setDescription(item.description || ''); setPrice(String(item.price)); setCategory(item.category_id || ''); setAvailable(item.is_available);
+      }
+    };
+    void load();
+  }, [itemId, showToast]);
+
+  const handleSave = async () => {
     if (!name.trim() || !price.trim()) {
       showToast('error', 'Please fill in the item name and price.');
       return;
     }
+    const payload = { name: name.trim(), description: description.trim() || null, price: Number(price), category_id: category || null, is_available: available };
+    const result = itemId
+      ? await supabase.from('menu_items').update(payload).eq('id', itemId)
+      : await supabase.from('menu_items').insert(payload);
+    if (result.error) { showToast('error', result.error.message); return; }
     showToast('success', `${name} ${isEdit ? 'updated' : 'added'} successfully.`);
-    setTimeout(onBack, 800);
+    onBack();
   };
 
   return (
@@ -93,7 +113,7 @@ export function AddEditMenuItem({ itemId, onBack }: Props) {
               onChange={e => setCategory(e.target.value)}
               className="touch-target w-full px-4 py-3 rounded-xl border border-neutral-300 text-sm focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 bg-white"
             >
-              {menuCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
             </select>
           </div>
         </div>

@@ -38,6 +38,7 @@ export interface Table {
   id: string;
   number: number;
   seats: number;
+  qrToken?: string;
   status: TableStatus;
   serverName?: string;
   guests?: number;

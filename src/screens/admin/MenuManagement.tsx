@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, Plus, Edit, Trash2, PackageX } from 'lucide-react';
-import { menuItems as initialItems, menuCategories } from '@/data';
 import { formatCurrency } from '@/lib/status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
+import type { MenuItem } from '@/types';
 
 interface Props {
   onAddItem: () => void;
@@ -13,11 +14,37 @@ interface Props {
 }
 
 export function MenuManagement({ onAddItem, onEditItem }: Props) {
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [menuCategories, setMenuCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [deleteTarget, setDeleteTarget] = useState<typeof items[0] | null>(null);
   const { toasts, showToast, closeToast } = useToast();
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: categoryRows, error: categoryError }, { data: itemRows, error: itemError }] = await Promise.all([
+        supabase.from('categories').select('id, name, display_order').order('display_order'),
+        supabase.from('menu_items').select('id, name, description, price, image_url, is_available, category_id, categories(name)').order('name'),
+      ]);
+      if (categoryError || itemError) showToast('error', categoryError?.message || itemError?.message || 'Unable to load menu.');
+      setMenuCategories((categoryRows || []).map(category => category.name));
+      setItems((itemRows || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description || '',
+        price: Number(item.price),
+        category: Array.isArray(item.categories) && item.categories[0]
+          ? (item.categories[0] as { name?: string }).name || 'Uncategorised'
+          : 'Uncategorised',
+        image: item.image_url || '',
+        available: item.is_available,
+      })));
+      setLoading(false);
+    };
+    void load();
+  }, [showToast]);
 
   const categories = ['all', ...menuCategories];
 
@@ -27,8 +54,10 @@ export function MenuManagement({ onAddItem, onEditItem }: Props) {
     return true;
   });
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
+    const { error } = await supabase.from('menu_items').delete().eq('id', deleteTarget.id);
+    if (error) { showToast('error', error.message); return; }
     setItems(prev => prev.filter(i => i.id !== deleteTarget.id));
     showToast('success', `${deleteTarget.name} removed from menu.`);
     setDeleteTarget(null);
@@ -67,7 +96,7 @@ export function MenuManagement({ onAddItem, onEditItem }: Props) {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? <p className="py-12 text-center text-sm text-neutral-500">Loading menu...</p> : filtered.length === 0 ? (
         <EmptyState
           title="No menu items"
           message="No items match your search. Try adding a new item."

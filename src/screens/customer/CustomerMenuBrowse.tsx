@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Coffee, Search, Plus, Minus, ShoppingCart, Star } from 'lucide-react';
-import { menuItems, menuCategories } from '@/data';
 import { formatCurrency } from '@/lib/status';
 import type { MenuItem } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 interface CartEntry {
   item: MenuItem;
@@ -15,9 +15,37 @@ interface Props {
 }
 
 export function CustomerMenuBrowse({ tableNumber, onCheckout }: Props) {
-  const [activeCategory, setActiveCategory] = useState(menuCategories[0]);
+  const [menuCategories, setMenuCategories] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState('');
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartEntry[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: categories }, { data: items }] = await Promise.all([
+        supabase.from('categories').select('name').order('display_order'),
+        supabase.from('menu_items').select('id, name, description, price, image_url, is_available, categories(name)').eq('is_available', true).order('name'),
+      ]);
+      const categoryNames = (categories || []).map(category => category.name);
+      setMenuCategories(categoryNames);
+      setActiveCategory(current => current || categoryNames[0] || '');
+      setMenuItems((items || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description || '',
+        price: Number(item.price),
+        category: Array.isArray(item.categories) && item.categories[0]
+          ? (item.categories[0] as { name?: string }).name || ''
+          : '',
+        image: item.image_url || '',
+        available: item.is_available,
+      })));
+      setLoading(false);
+    };
+    void load();
+  }, []);
 
   const availableItems = menuItems.filter(m => m.available);
   const items = availableItems.filter(m => {
@@ -78,7 +106,9 @@ export function CustomerMenuBrowse({ tableNumber, onCheckout }: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 pb-24">
-        {items.length === 0 ? (
+        {loading ? (
+          <p className="py-16 text-center text-sm text-neutral-500">Loading menu...</p>
+        ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Coffee className="w-12 h-12 text-neutral-300 mb-3" />
             <p className="text-sm text-neutral-500">No items found</p>

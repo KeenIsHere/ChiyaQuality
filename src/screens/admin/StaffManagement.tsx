@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2, UserCog, Shield } from 'lucide-react';
-import { staffAccounts as initialStaff } from '@/data';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import type { Role, StaffAccount } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 const roleLabels: Record<Role, string> = {
   waiter: 'Waiter', kitchen: 'Kitchen', billing: 'Billing', admin: 'Admin', customer: 'Customer',
@@ -20,7 +20,7 @@ const roleColors: Record<Role, string> = {
 };
 
 export function StaffManagement() {
-  const [staff, setStaff] = useState<StaffAccount[]>(initialStaff);
+  const [staff, setStaff] = useState<StaffAccount[]>([]);
   const [addModal, setAddModal] = useState(false);
   const [deactivateModal, setDeactivateModal] = useState<StaffAccount | null>(null);
   const [newName, setNewName] = useState('');
@@ -29,21 +29,34 @@ export function StaffManagement() {
   const [newPin, setNewPin] = useState('');
   const { toasts, showToast, closeToast } = useToast();
 
-  const handleAdd = () => {
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase.from('profiles').select('id, full_name, role, active').order('full_name');
+      if (error) { showToast('error', error.message); return; }
+      setStaff((data || []).map(profile => ({ id: profile.id, name: profile.full_name, username: profile.full_name, role: profile.role, pin: '', active: profile.active })));
+    };
+    void load();
+  }, [showToast]);
+
+  const handleAdd = async () => {
     if (!newName.trim() || !newUsername.trim() || !newPin.trim()) {
       showToast('error', 'Please fill in all fields.');
       return;
     }
-    const newStaff: StaffAccount = {
-      id: `s${Date.now()}`, name: newName, username: newUsername.toLowerCase(), role: newRole, pin: newPin, active: true,
-    };
+    const { data, error } = await supabase.functions.invoke('create-staff-user', {
+      body: { fullName: newName.trim(), email: newUsername.trim().toLowerCase(), password: newPin, role: newRole },
+    });
+    if (error) { showToast('error', error.message); return; }
+    const newStaff: StaffAccount = { id: data.id, name: newName, username: newUsername.toLowerCase(), role: newRole, pin: '', active: true };
     setStaff(prev => [...prev, newStaff]);
     showToast('success', `${newName} added as ${roleLabels[newRole]}.`);
     setAddModal(false);
     setNewName(''); setNewUsername(''); setNewPin(''); setNewRole('waiter');
   };
 
-  const handleToggleActive = (account: StaffAccount) => {
+  const handleToggleActive = async (account: StaffAccount) => {
+    const { error } = await supabase.from('profiles').update({ active: !account.active }).eq('id', account.id);
+    if (error) { showToast('error', error.message); return; }
     setStaff(prev => prev.map(s => s.id === account.id ? { ...s, active: !s.active } : s));
     showToast('info', `${account.name} ${account.active ? 'deactivated' : 'reactivated'}.`);
     setDeactivateModal(null);
@@ -116,13 +129,13 @@ export function StaffManagement() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-neutral-600 mb-1.5">Username</label>
-              <input type="text" value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="hari"
+              <label className="block text-xs font-medium text-neutral-600 mb-1.5">Email</label>
+              <input type="email" value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="hari@example.com"
                 className="touch-target w-full px-4 py-3 rounded-xl border border-neutral-300 text-sm focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-neutral-600 mb-1.5">PIN</label>
-              <input type="text" value={newPin} onChange={e => setNewPin(e.target.value)} placeholder="4 digits" maxLength={4}
+              <label className="block text-xs font-medium text-neutral-600 mb-1.5">Password</label>
+              <input type="password" value={newPin} onChange={e => setNewPin(e.target.value)} placeholder="At least 6 characters"
                 className="touch-target w-full px-4 py-3 rounded-xl border border-neutral-300 text-sm focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 tracking-widest" />
             </div>
           </div>
