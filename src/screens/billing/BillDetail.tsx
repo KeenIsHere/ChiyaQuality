@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Receipt, Printer } from 'lucide-react';
 import type { Table } from '@/types';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   table: Table;
@@ -9,18 +11,21 @@ interface Props {
   onBack: () => void;
 }
 
-const sampleItems = [
-  { name: 'Milk Tea', qty: 2, price: 45 },
-  { name: 'Steamed Momo', qty: 1, price: 140 },
-  { name: 'Veg Chowmein', qty: 1, price: 100 },
-  { name: 'Fresh Lime Soda', qty: 1, price: 70 },
-];
-
 export function BillDetail({ table, onRecordPayment, onBack }: Props) {
-  const subtotal = sampleItems.reduce((s, i) => s + i.price * i.qty, 0);
-  const tax = Math.round(subtotal * 0.13);
-  const service = Math.round(subtotal * 0.1);
-  const total = subtotal + tax + service;
+  const [items, setItems] = useState<{ name: string; qty: number; price: number }[]>([]);
+  const [bill, setBill] = useState({ subtotal: 0, tax: 0, service: 0, total: 0 });
+  useEffect(() => {
+    if (!table.currentSessionId) return;
+    const load = async () => {
+      const [{ data: billRow }, { data: itemRows }] = await Promise.all([
+        supabase.from('bills').select('subtotal, tax, service_charge, total').eq('table_session_id', table.currentSessionId).maybeSingle(),
+        supabase.from('order_items').select('quantity, notes, menu_items(name, price), orders!inner(table_session_id, status)').eq('orders.table_session_id', table.currentSessionId).in('orders.status', ['confirmed', 'preparing', 'ready', 'served']).neq('item_status', 'unavailable'),
+      ]);
+      if (billRow) setBill({ subtotal: Number(billRow.subtotal), tax: Number(billRow.tax), service: Number(billRow.service_charge), total: Number(billRow.total) });
+      setItems((itemRows || []).map(item => { const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items; return { name: menuItem?.name || 'Menu item', qty: item.quantity, price: Number(menuItem?.price || 0) }; }));
+    };
+    void load();
+  }, [table.currentSessionId]);
 
   return (
     <div className="px-4 lg:px-6 py-4 max-w-lg mx-auto">
@@ -35,12 +40,12 @@ export function BillDetail({ table, onRecordPayment, onBack }: Props) {
           </div>
           <h1 className="text-lg font-semibold text-neutral-800">ChiyaQuality</h1>
           <p className="text-xs text-neutral-500">Table {table.number} · {table.guests} guests</p>
-          <p className="text-xs text-neutral-400 mt-0.5">Invoice #{`INV-2026-0452`} · {new Date().toLocaleDateString()}</p>
+          <p className="text-xs text-neutral-400 mt-0.5">Table session invoice · {new Date().toLocaleDateString()}</p>
         </div>
 
         <div className="px-6 py-4">
           <div className="space-y-2.5 mb-4">
-            {sampleItems.map((item, idx) => (
+            {items.map((item, idx) => (
               <div key={idx} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-md bg-neutral-100 text-neutral-600 text-xs font-medium flex items-center justify-center">
@@ -56,25 +61,25 @@ export function BillDetail({ table, onRecordPayment, onBack }: Props) {
           <div className="space-y-1.5 pt-3 border-t border-neutral-200">
             <div className="flex justify-between text-sm">
               <span className="text-neutral-600">Subtotal</span>
-              <span className="text-neutral-800">{formatCurrency(subtotal)}</span>
+              <span className="text-neutral-800">{formatCurrency(bill.subtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-neutral-600">Tax (13%)</span>
-              <span className="text-neutral-800">{formatCurrency(tax)}</span>
+              <span className="text-neutral-800">{formatCurrency(bill.tax)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-neutral-600">Service Charge (10%)</span>
-              <span className="text-neutral-800">{formatCurrency(service)}</span>
+              <span className="text-neutral-800">{formatCurrency(bill.service)}</span>
             </div>
             <div className="flex justify-between pt-2 border-t border-neutral-200">
               <span className="text-base font-semibold text-neutral-800">Total</span>
-              <span className="text-xl font-bold text-brand-600">{formatCurrency(total)}</span>
+              <span className="text-xl font-bold text-brand-600">{formatCurrency(bill.total)}</span>
             </div>
           </div>
         </div>
 
         <div className="px-6 pb-5 flex items-center gap-3">
-          <Button variant="secondary" size="lg" onClick={() => {}}>
+          <Button variant="secondary" size="lg" onClick={() => window.print()}>
             <Printer className="w-4 h-4" /> Print
           </Button>
           <Button variant="primary" size="lg" fullWidth onClick={onRecordPayment}>

@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { QrCode, RotateCw } from 'lucide-react';
 import type { Table } from '@/types';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   table: Table;
@@ -9,10 +11,25 @@ interface Props {
 }
 
 export function PaymentQRScreen({ table, onBack }: Props) {
-  const subtotal = 645;
-  const tax = Math.round(subtotal * 0.13);
-  const service = Math.round(subtotal * 0.1);
-  const total = subtotal + tax + service;
+  const [bill, setBill] = useState({ subtotal: 0, tax: 0, service_charge: 0, total: 0 });
+  const [paymentQrUrl, setPaymentQrUrl] = useState('');
+
+  useEffect(() => {
+    if (!table.currentSessionId) return;
+    const load = async () => {
+      const [{ data: billRow }, { data: settings }] = await Promise.all([
+        supabase.from('bills').select('subtotal, tax, service_charge, total').eq('table_session_id', table.currentSessionId).maybeSingle(),
+        supabase.from('settings').select('payment_qr_url').eq('id', 1).single(),
+      ]);
+      if (billRow) setBill({ subtotal: Number(billRow.subtotal), tax: Number(billRow.tax), service_charge: Number(billRow.service_charge), total: Number(billRow.total) });
+      setPaymentQrUrl(settings?.payment_qr_url || '');
+    };
+    void load();
+    const channel = supabase.channel(`waiter-bill-${table.currentSessionId}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills', filter: `table_session_id=eq.${table.currentSessionId}` }, payload => {
+      setBill({ subtotal: Number(payload.new.subtotal), tax: Number(payload.new.tax), service_charge: Number(payload.new.service_charge), total: Number(payload.new.total) });
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [table.currentSessionId]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8 bg-neutral-50">
@@ -24,7 +41,7 @@ export function PaymentQRScreen({ table, onBack }: Props) {
 
         <div className="flex items-center justify-center mb-5">
           <div className="w-64 h-64 bg-white border-4 border-neutral-200 rounded-2xl flex items-center justify-center relative">
-            <QrCode className="w-48 h-48 text-neutral-800" strokeWidth={1.5} />
+            {paymentQrUrl ? <img src={paymentQrUrl} alt="Business payment QR" className="w-48 h-48 object-contain" /> : <QrCode className="w-48 h-48 text-neutral-800" strokeWidth={1.5} />}
             <div className="absolute -top-3 -left-3 w-6 h-6 border-t-4 border-l-4 border-brand-600 rounded-tl-lg" />
             <div className="absolute -top-3 -right-3 w-6 h-6 border-t-4 border-r-4 border-brand-600 rounded-tr-lg" />
             <div className="absolute -bottom-3 -left-3 w-6 h-6 border-b-4 border-l-4 border-brand-600 rounded-bl-lg" />
@@ -34,14 +51,14 @@ export function PaymentQRScreen({ table, onBack }: Props) {
 
         <div className="text-center mb-5">
           <p className="text-xs text-neutral-400 mb-1">Scan to pay</p>
-          <p className="text-3xl font-bold text-brand-600">{formatCurrency(total)}</p>
+          <p className="text-3xl font-bold text-brand-600">{formatCurrency(bill.total)}</p>
         </div>
 
         <div className="space-y-1.5 px-3 py-3 bg-neutral-50 rounded-xl mb-5">
-          <div className="flex justify-between text-xs text-neutral-600"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-          <div className="flex justify-between text-xs text-neutral-600"><span>Tax (13%)</span><span>{formatCurrency(tax)}</span></div>
-          <div className="flex justify-between text-xs text-neutral-600"><span>Service (10%)</span><span>{formatCurrency(service)}</span></div>
-          <div className="flex justify-between text-sm font-semibold text-neutral-800 pt-1.5 border-t border-neutral-200"><span>Total</span><span>{formatCurrency(total)}</span></div>
+          <div className="flex justify-between text-xs text-neutral-600"><span>Subtotal</span><span>{formatCurrency(bill.subtotal)}</span></div>
+          <div className="flex justify-between text-xs text-neutral-600"><span>Tax</span><span>{formatCurrency(bill.tax)}</span></div>
+          <div className="flex justify-between text-xs text-neutral-600"><span>Service</span><span>{formatCurrency(bill.service_charge)}</span></div>
+          <div className="flex justify-between text-sm font-semibold text-neutral-800 pt-1.5 border-t border-neutral-200"><span>Total</span><span>{formatCurrency(bill.total)}</span></div>
         </div>
 
         <Button fullWidth variant="secondary" onClick={onBack}>

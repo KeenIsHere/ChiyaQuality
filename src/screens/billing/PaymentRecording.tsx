@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Banknote, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import type { PaymentMethod } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
-  total: number;
+  tableSessionId?: string;
   onBack: () => void;
-  onComplete: () => void;
+  onComplete: (method: PaymentMethod) => Promise<void> | void;
 }
 
 const methods: { value: PaymentMethod; label: string; icon: typeof Banknote; desc: string }[] = [
@@ -17,19 +18,27 @@ const methods: { value: PaymentMethod; label: string; icon: typeof Banknote; des
   { value: 'card', label: 'Card', icon: CreditCard, desc: 'Debit or credit card' },
 ];
 
-export function PaymentRecording({ total, onBack, onComplete }: Props) {
+export function PaymentRecording({ tableSessionId, onBack, onComplete }: Props) {
+  const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<PaymentMethod | null>(null);
   const [processing, setProcessing] = useState(false);
   const { toasts, showToast, closeToast } = useToast();
 
-  const handleConfirm = () => {
+  useEffect(() => {
+    if (!tableSessionId) return;
+    void supabase.from('bills').select('total').eq('table_session_id', tableSessionId).maybeSingle().then(({ data }) => { if (data) setTotal(Number(data.total)); });
+  }, [tableSessionId]);
+
+  const handleConfirm = async () => {
     if (!selected) return;
     setProcessing(true);
-    setTimeout(() => {
+    try {
+      await onComplete(selected);
       showToast('success', `Payment of ${formatCurrency(total)} recorded successfully.`);
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Unable to record payment.');
       setProcessing(false);
-      onComplete();
-    }, 1000);
+    }
   };
 
   return (

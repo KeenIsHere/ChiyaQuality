@@ -1,29 +1,61 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, X, Edit, Clock, ShoppingCart, AlertCircle } from 'lucide-react';
 import type { CustomerCart } from '@/types';
-import { customerCarts as initialCarts } from '@/data';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
 
 export function PendingCustomerOrders() {
-  const [carts, setCarts] = useState<CustomerCart[]>(initialCarts);
+  const [carts, setCarts] = useState<CustomerCart[]>([]);
   const [rejectModal, setRejectModal] = useState<CustomerCart | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const { toasts, showToast, closeToast } = useToast();
 
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase.from('orders').select('id, status, placed_at, table_sessions(tables(table_code)), order_items(quantity, notes, menu_items(name, price))').eq('status', 'pending_confirmation').order('placed_at');
+      if (error) { showToast('error', error.message); return; }
+      setCarts((data || []).map(order => {
+        const session = Array.isArray(order.table_sessions) ? order.table_sessions[0] : order.table_sessions;
+        const table = session && (Array.isArray(session.tables) ? session.tables[0] : session.tables);
+        return {
+          id: order.id,
+          tableNumber: Number.parseInt(table?.table_code || '0', 10),
+          items: (order.order_items || []).map(item => {
+            const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
+            return { name: menuItem?.name || 'Menu item', quantity: item.quantity, price: Number(menuItem?.price || 0) };
+          }),
+          total: (order.order_items || []).reduce((sum, item) => {
+            const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
+            return sum + item.quantity * Number(menuItem?.price || 0);
+          }, 0),
+          status: order.status === 'pending_confirmation' ? 'pending' : 'confirmed',
+          submittedAt: new Date(order.placed_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+        };
+      }));
+    };
+    void load();
+    const channel = supabase.channel('waiter-pending-orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { void load(); }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [showToast]);
+
   const pending = carts.filter(c => c.status === 'pending');
 
-  const handleAccept = (cart: CustomerCart) => {
-    setCarts(prev => prev.map(c => c.id === cart.id ? { ...c, status: 'confirmed' } : c));
+  const handleAccept = async (cart: CustomerCart) => {
+    const { error } = await supabase.from('orders').update({ status: 'confirmed', confirmed_at: new Date().toISOString() }).eq('id', cart.id);
+    if (error) { showToast('error', error.message); return; }
+    setCarts(prev => prev.filter(c => c.id !== cart.id));
     showToast('success', `Table ${cart.tableNumber} order accepted and sent to kitchen.`);
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!rejectModal) return;
-    setCarts(prev => prev.map(c => c.id === rejectModal.id ? { ...c, status: 'rejected', rejectReason } : c));
+    const { error } = await supabase.from('orders').update({ status: 'rejected', cancel_reason: rejectReason || null }).eq('id', rejectModal.id);
+    if (error) { showToast('error', error.message); return; }
+    setCarts(prev => prev.filter(c => c.id !== rejectModal.id));
     showToast('info', `Table ${rejectModal.tableNumber} order rejected.`);
     setRejectModal(null);
     setRejectReason('');

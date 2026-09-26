@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Trash2, StickyNote, Send, ShoppingCart, ArrowLeft } from 'lucide-react';
+import { Trash2, StickyNote, Send, ShoppingCart, ArrowLeft } from 'lucide-react';
 import type { OrderItem, Table } from '@/types';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 interface Props {
   table: Table;
   items: OrderItem[];
-  onConfirm: () => void;
+  onConfirm: (items: OrderItem[]) => void | Promise<void>;
   onBack: () => void;
 }
 
@@ -15,6 +15,7 @@ export function OrderReview({ table, items, onConfirm, onBack }: Props) {
   const [localItems, setLocalItems] = useState<OrderItem[]>(items);
   const [notesModalId, setNotesModalId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState('');
 
   const subtotal = localItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const serviceCharge = Math.round(subtotal * 0.1);
@@ -23,11 +24,11 @@ export function OrderReview({ table, items, onConfirm, onBack }: Props) {
   const removeItem = (id: string) => setLocalItems(prev => prev.filter(i => i.id !== id));
   const updateNotes = (id: string, notes: string) => setLocalItems(prev => prev.map(i => i.id === id ? { ...i, notes } : i));
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setConfirming(true);
-    setTimeout(() => {
-      onConfirm();
-    }, 800);
+    setError('');
+    try { await onConfirm(localItems); }
+    catch (confirmError) { setError(confirmError instanceof Error ? confirmError.message : 'Unable to confirm order.'); setConfirming(false); }
   };
 
   return (
@@ -110,6 +111,7 @@ export function OrderReview({ table, items, onConfirm, onBack }: Props) {
             </div>
           </div>
 
+          {error && <p className="text-sm text-status-cancelled mb-3">{error}</p>}
           <Button fullWidth size="lg" variant="success" onClick={handleConfirm} disabled={confirming || localItems.length === 0}>
             {confirming ? (
               <>Sending to kitchen...</>

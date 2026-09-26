@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, AlertCircle, PackageX, Bell, Trash2 } from 'lucide-react';
-import { notifications as initialNotifs } from '@/data';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { supabase } from '@/lib/supabase';
+import type { Notification } from '@/types';
 
 interface Props {
   onGoToTable: (tableNumber: number) => void;
@@ -15,10 +16,30 @@ const iconMap = {
 };
 
 export function NotificationsPanel({ onGoToTable }: Props) {
-  const [notifs, setNotifs] = useState(initialNotifs);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
 
-  const dismiss = (id: string) => setNotifs(prev => prev.filter(n => n.id !== id));
-  const clearAll = () => setNotifs([]);
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('notifications').select('id, event_type, message, created_at, read_at, tables(table_code)').eq('recipient_role', 'waiter').order('created_at', { ascending: false });
+      setNotifs((data || []).map(notification => {
+        const table = Array.isArray(notification.tables) ? notification.tables[0] : notification.tables;
+        const type = notification.event_type === 'order_ready' ? 'ready' : notification.event_type === 'customer_order_submitted' ? 'cart_submitted' : 'bill_requested';
+        return { id: notification.id, type, title: type === 'ready' ? 'Order Ready to Serve' : type === 'cart_submitted' ? 'New Customer Order' : 'Notification', message: notification.message, tableNumber: table?.table_code ? Number.parseInt(table.table_code, 10) : undefined, time: new Date(notification.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }), read: Boolean(notification.read_at) };
+      }));
+    };
+    void load();
+    const channel = supabase.channel('waiter-notifications').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: 'recipient_role=eq.waiter' }, () => { void load(); }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
+
+  const dismiss = async (id: string) => {
+    await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', id);
+    setNotifs(prev => prev.filter(n => n.id !== id));
+  };
+  const clearAll = async () => {
+    await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('recipient_role', 'waiter').is('read_at', null);
+    setNotifs([]);
+  };
 
   const unread = notifs.filter(n => !n.read);
   const read = notifs.filter(n => n.read);

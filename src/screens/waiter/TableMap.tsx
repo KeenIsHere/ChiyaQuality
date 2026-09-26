@@ -1,12 +1,11 @@
-import { useState } from 'react';
-import { Users, Plus, Search, Grid3x3, List, Coffee } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Users, Search, Grid3x3 } from 'lucide-react';
 import type { Table, TableStatus } from '@/types';
-import { tables as initialTables } from '@/data';
-import { tableStatusConfig, formatCurrency } from '@/lib/status';
+import { tableStatusConfig } from '@/lib/status';
 import { TableStatusBadge } from '@/components/ui/TableStatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   onSelectTable: (table: Table) => void;
@@ -22,10 +21,29 @@ const statusFilters: { value: TableStatus | 'all'; label: string }[] = [
 ];
 
 export function TableMap({ onSelectTable }: Props) {
-  const [tables] = useState<Table[]>(initialTables);
+  const [tables, setTables] = useState<Table[]>([]);
   const [filter, setFilter] = useState<TableStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const mapTable = (table: { id: string; table_code: string; seats: number; status: TableStatus; current_session_id?: string }): Table => ({
+      id: table.id,
+      number: Number.parseInt(table.table_code, 10) || 0,
+      seats: table.seats,
+      status: table.status,
+      currentSessionId: table.current_session_id,
+    });
+    const load = async () => {
+      const { data } = await supabase.from('tables').select('id, table_code, seats, status, current_session_id').order('table_code');
+      if (data) setTables(data.map(mapTable));
+    };
+    void load();
+    const channel = supabase.channel('waiter-table-map').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tables' }, payload => {
+      setTables(prev => prev.map(table => table.id === payload.new.id ? mapTable(payload.new as typeof payload.new & { id: string; table_code: string; seats: number; status: TableStatus; current_session_id?: string }) : table));
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
 
   const filtered = tables.filter(t => {
     if (filter !== 'all' && t.status !== filter) return false;

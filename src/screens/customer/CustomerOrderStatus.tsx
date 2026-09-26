@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock, ChefHat, CheckCircle2, XCircle, Coffee, RefreshCw } from 'lucide-react';
+import { Clock, ChefHat, CheckCircle2, Coffee, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 

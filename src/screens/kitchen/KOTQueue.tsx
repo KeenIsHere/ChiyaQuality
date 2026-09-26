@@ -1,22 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Clock, ChefHat, CheckCircle2, Utensils, AlertTriangle } from 'lucide-react';
-import type { KitchenOrder, OrderStatus } from '@/types';
-import { kitchenOrders as initialOrders } from '@/data';
+import type { KitchenOrder } from '@/types';
 import { orderStatusConfig } from '@/lib/status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
 
 export function KOTQueue() {
-  const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
+  const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const { toasts, showToast, closeToast } = useToast();
 
-  const advanceStatus = (id: string) => {
-    setOrders(prev => prev.map(o => {
-      if (o.id !== id) return o;
-      const next: OrderStatus = o.status === 'received' ? 'preparing' : o.status === 'preparing' ? 'ready' : 'served';
-      if (next === 'ready') showToast('success', `Table ${o.tableNumber} order is ready to serve!`);
-      return { ...o, status: next };
-    }));
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('orders').select('id, status, confirmed_at, table_sessions(tables(table_code)), order_items(quantity, notes, menu_items(name))').in('status', ['confirmed', 'preparing', 'ready', 'served']).order('confirmed_at');
+      setOrders((data || []).map(order => {
+        const session = Array.isArray(order.table_sessions) ? order.table_sessions[0] : order.table_sessions;
+        const table = session && (Array.isArray(session.tables) ? session.tables[0] : session.tables);
+        return {
+          id: order.id,
+          tableNumber: Number.parseInt(table?.table_code || '0', 10),
+          items: (order.order_items || []).map(item => { const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items; return { name: menuItem?.name || 'Menu item', quantity: item.quantity, notes: item.notes || '' }; }),
+          status: order.status === 'confirmed' ? 'received' : order.status,
+          receivedAt: order.confirmed_at ? new Date(order.confirmed_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
+          elapsedMin: order.confirmed_at ? Math.max(0, Math.floor((Date.now() - new Date(order.confirmed_at).getTime()) / 60000)) : 0,
+        };
+      }));
+    };
+    void load();
+    const channel = supabase.channel('kitchen-kot-queue').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { void load(); }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
+
+  const advanceStatus = async (id: string) => {
+    const order = orders.find(item => item.id === id);
+    if (!order) return;
+    if (order.status === 'received') {
+      const { error } = await Promise.all([
+        supabase.from('orders').update({ status: 'preparing' }).eq('id', id),
+        supabase.from('order_items').update({ item_status: 'preparing' }).eq('order_id', id),
+      ]).then(results => ({ error: results.find(result => result.error)?.error }));
+      if (error) { showToast('error', error.message); return; }
+    } else if (order.status === 'preparing') {
+      const { error } = await supabase.from('order_items').update({ item_status: 'ready' }).eq('order_id', id);
+      if (error) { showToast('error', error.message); return; }
+      showToast('success', `Table ${order.tableNumber} order is ready to serve!`);
+    } else if (order.status === 'ready') {
+      const { error } = await supabase.from('orders').update({ status: 'served', served_at: new Date().toISOString() }).eq('id', id);
+      if (error) { showToast('error', error.message); return; }
+    }
   };
 
   const activeOrders = orders.filter(o => o.status !== 'served' && o.status !== 'cancelled');

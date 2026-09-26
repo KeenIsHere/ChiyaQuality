@@ -47,7 +47,7 @@ export function AppShell({
   onBack,
   children,
 }: Props) {
-  const { toasts, showToast, closeToast } = useToast();
+  const { toasts, closeToast } = useToast();
 
   return (
     <div className="min-h-screen bg-neutral-50 flex flex-col">

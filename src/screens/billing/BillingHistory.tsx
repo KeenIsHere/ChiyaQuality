@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, Calendar, Download, Banknote, QrCode, CreditCard, FileText } from 'lucide-react';
-import { invoices as initialInvoices } from '@/data';
 import { formatCurrency } from '@/lib/status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
+import type { Invoice } from '@/types';
 
 const paymentIcons: Record<string, typeof Banknote> = {
   cash: Banknote,
@@ -14,25 +15,32 @@ const paymentIcons: Record<string, typeof Banknote> = {
 export function BillingHistory() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'today' | 'paid' | 'void'>('all');
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
-  const filtered = initialInvoices.filter(inv => {
+  useEffect(() => {
+    void supabase.from('bills').select('id, total, payment_method, paid_at, table_sessions(tables(table_code))').eq('status', 'paid').order('paid_at', { ascending: false }).then(({ data }) => {
+      setInvoices((data || []).map((bill, index) => { const session = Array.isArray(bill.table_sessions) ? bill.table_sessions[0] : bill.table_sessions; const table = session && (Array.isArray(session.tables) ? session.tables[0] : session.tables); return { id: bill.id, invoiceNo: `INV-${new Date(bill.paid_at).getFullYear()}-${String(index + 1).padStart(4, '0')}`, tableNumber: Number.parseInt(table?.table_code || '0', 10), date: new Date(bill.paid_at).toLocaleString(), total: Number(bill.total), status: 'paid', paymentMethod: bill.payment_method || undefined }; }));
+    });
+  }, []);
+
+  const filtered = invoices.filter(inv => {
     if (search) {
       const q = search.toLowerCase();
       if (!inv.invoiceNo.toLowerCase().includes(q) && !String(inv.tableNumber).includes(q)) return false;
     }
     if (filter === 'paid' && inv.status !== 'paid') return false;
-    if (filter === 'void' && inv.status !== 'void') return false;
+    if (filter === 'void') return false;
     return true;
   });
 
-  const totalRevenue = initialInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.total, 0);
+  const totalRevenue = invoices.reduce((s, i) => s + i.total, 0);
 
   return (
     <div className="px-4 lg:px-6 py-4 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-page-title text-neutral-800">Billing History</h1>
-          <p className="text-sm text-neutral-500 mt-0.5">{initialInvoices.length} invoices · {formatCurrency(totalRevenue)} total collected</p>
+          <p className="text-sm text-neutral-500 mt-0.5">{invoices.length} invoices · {formatCurrency(totalRevenue)} total collected</p>
         </div>
         <Button variant="secondary" size="sm" onClick={() => {}}>
           <Download className="w-4 h-4" /> Export

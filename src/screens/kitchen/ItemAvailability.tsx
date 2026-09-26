@@ -1,14 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, PackageX, UtensilsCrossed } from 'lucide-react';
-import { menuItems, menuCategories } from '@/data';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { supabase } from '@/lib/supabase';
+import type { MenuItem } from '@/types';
 
 export function ItemAvailability() {
-  const [items, setItems] = useState(menuItems);
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [menuCategories, setMenuCategories] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const { toasts, showToast, closeToast } = useToast();
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: categories }, { data: rows }] = await Promise.all([
+        supabase.from('categories').select('name').order('display_order'),
+        supabase.from('menu_items').select('id, name, description, price, image_url, is_available, categories(name)').order('name'),
+      ]);
+      setMenuCategories((categories || []).map(category => category.name));
+      setItems((rows || []).map(item => ({ id: item.id, name: item.name, description: item.description || '', price: Number(item.price), category: Array.isArray(item.categories) && item.categories[0] ? (item.categories[0] as { name?: string }).name || '' : '', image: item.image_url || '', available: item.is_available })));
+    };
+    void load();
+    const channel = supabase.channel('kitchen-menu-availability').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'menu_items' }, payload => {
+      setItems(prev => prev.map(item => item.id === payload.new.id ? { ...item, available: payload.new.is_available } : item));
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
 
   const categories = ['all', ...menuCategories];
 
@@ -18,13 +36,12 @@ export function ItemAvailability() {
     return true;
   });
 
-  const toggleAvailability = (id: string) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== id) return item;
-      const updated = { ...item, available: !item.available };
-      showToast(updated.available ? 'success' : 'info', `${item.name} ${updated.available ? 'available' : 'marked sold out'}`);
-      return updated;
-    }));
+  const toggleAvailability = async (id: string) => {
+    const item = items.find(entry => entry.id === id);
+    if (!item) return;
+    const { error } = await supabase.from('menu_items').update({ is_available: !item.available }).eq('id', id);
+    if (error) { showToast('error', error.message); return; }
+    showToast(!item.available ? 'success' : 'info', `${item.name} ${!item.available ? 'available' : 'marked sold out'}`);
   };
 
   const soldOutCount = items.filter(i => !i.available).length;

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Grid3x3, ClipboardList, Bell, QrCode, ShoppingCart,
+  Grid3x3, Bell, ShoppingCart,
   ChefHat, Package, Receipt, FileText,
   LayoutDashboard, Utensils, Table2, Users, DollarSign, TrendingUp, Settings,
 } from 'lucide-react';
@@ -40,6 +40,7 @@ import { CustomerOrderStatus } from '@/screens/customer/CustomerOrderStatus';
 import { CustomerRejected } from '@/screens/customer/CustomerRejected';
 import type { MenuItem } from '@/types';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { signOutStaff } from '@/lib/auth';
 
 interface Session {
   role: Role;
@@ -65,6 +66,32 @@ export default function App() {
   const [customerCart, setCustomerCart] = useState<{ item: MenuItem; qty: number }[]>([]);
   const [customerRejected, setCustomerRejected] = useState<string | undefined>(undefined);
   const [customerOrderId, setCustomerOrderId] = useState<string | undefined>(undefined);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured && !window.location.pathname.startsWith('/menu/'));
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || window.location.pathname.startsWith('/menu/')) {
+      setAuthLoading(false);
+      return;
+    }
+    const restore = async (userId: string) => {
+      const { data: profile } = await supabase.from('profiles').select('full_name, role, active').eq('id', userId).maybeSingle();
+      if (profile?.active) {
+        handleLogin(profile.role, profile.full_name);
+      } else {
+        await supabase.auth.signOut();
+      }
+      setAuthLoading(false);
+    };
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user.id) void restore(data.session.user.id);
+      else setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user.id) void restore(session.user.id);
+      else { setSession(null); setAuthLoading(false); }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   const handleLogin = (role: Role, name: string) => {
     setSession({ role, name });
@@ -76,6 +103,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void signOutStaff();
     setSession(null);
     setActiveScreen('');
     setSelectedTable(null);
@@ -118,6 +146,8 @@ export default function App() {
     );
   }
 
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center text-sm text-neutral-500">Restoring session...</div>;
+
   if (!session) {
     return <LoginScreen onLogin={handleLogin} />;
   }
@@ -150,7 +180,25 @@ export default function App() {
           <OrderReview
             table={selectedTable}
             items={orderItems}
-            onConfirm={() => setActiveScreen('table-map')}
+            onConfirm={async items => {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) throw new Error('Your staff session has expired. Please sign in again.');
+              let sessionId = selectedTable.currentSessionId;
+              if (!sessionId) {
+                const { data: sessionRow, error: sessionError } = await supabase.from('table_sessions').insert({ table_id: selectedTable.id, waiter_id: user.id }).select('id').single();
+                if (sessionError) throw sessionError;
+                sessionId = sessionRow.id;
+                const { error: tableError } = await supabase.from('tables').update({ current_session_id: sessionId, status: 'occupied' }).eq('id', selectedTable.id);
+                if (tableError) throw tableError;
+              }
+              const { data: order, error: orderError } = await supabase.from('orders').insert({ table_session_id: sessionId, waiter_id: user.id, source: 'waiter', status: 'confirmed', confirmed_at: new Date().toISOString() }).select('id').single();
+              if (orderError) throw orderError;
+              const { error: itemError } = await supabase.from('order_items').insert(items.map(item => ({ order_id: order.id, menu_item_id: item.menuItemId, quantity: item.quantity, notes: item.notes || null })));
+              if (itemError) throw itemError;
+              const { error: tableError } = await supabase.from('tables').update({ status: 'preparing' }).eq('id', selectedTable.id);
+              if (tableError) throw tableError;
+              setActiveScreen('table-map');
+            }}
             onBack={() => setActiveScreen('order')}
           />
         ) : null;
@@ -202,9 +250,20 @@ export default function App() {
       case 'payment-recording':
         content = (
           <PaymentRecording
-            total={784}
+            tableSessionId={selectedTable?.currentSessionId}
             onBack={() => setActiveScreen('bill-detail')}
-            onComplete={() => setActiveScreen('billing-dashboard')}
+            onComplete={async method => {
+              const sessionId = selectedTable?.currentSessionId;
+              if (!sessionId) throw new Error('This table has no active billing session.');
+              const paidAt = new Date().toISOString();
+              const { error: billError } = await supabase.from('bills').update({ payment_method: method, status: 'paid', paid_at: paidAt }).eq('table_session_id', sessionId);
+              if (billError) throw billError;
+              const { error: sessionError } = await supabase.from('table_sessions').update({ status: 'closed', ended_at: paidAt }).eq('id', sessionId);
+              if (sessionError) throw sessionError;
+              const { error: tableError } = await supabase.from('tables').update({ status: 'available', current_session_id: null }).eq('id', selectedTable.id);
+              if (tableError) throw tableError;
+              setActiveScreen('billing-dashboard');
+            }}
           />
         );
         break;
@@ -263,7 +322,7 @@ export default function App() {
       onNavClick={setActiveScreen}
       onLogout={handleLogout}
       notifications={role === 'waiter' ? notifData : []}
-      onNotificationDismiss={(id) => {
+      onNotificationDismiss={() => {
         // For prototype: just visual
       }}
       showBack={showBack}

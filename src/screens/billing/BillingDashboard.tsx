@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Receipt, Clock, Users, ArrowRight, TrendingUp } from 'lucide-react';
 import type { Table } from '@/types';
-import { tables as initialTables } from '@/data';
 import { tableStatusConfig, formatCurrency } from '@/lib/status';
 import { TableStatusBadge } from '@/components/ui/TableStatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   onSelectTable: (table: Table) => void;
@@ -16,28 +16,24 @@ interface BillingSession extends Table {
   startTime: string;
 }
 
-const sessionData: Record<number, { runningTotal: number; items: number; startTime: string }> = {
-  2: { runningTotal: 300, items: 3, startTime: '12:00 PM' },
-  3: { runningTotal: 645, items: 5, startTime: '12:15 PM' },
-  4: { runningTotal: 780, items: 6, startTime: '12:30 PM' },
-  5: { runningTotal: 470, items: 3, startTime: '12:20 PM' },
-  6: { runningTotal: 310, items: 2, startTime: '11:30 AM' },
-  7: { runningTotal: 870, items: 4, startTime: '11:00 AM' },
-  10: { runningTotal: 300, items: 3, startTime: '12:50 PM' },
-  12: { runningTotal: 960, items: 7, startTime: '12:25 PM' },
-};
-
 export function BillingDashboard({ onSelectTable }: Props) {
-  const [tables] = useState<Table[]>(initialTables);
+  const [tables, setTables] = useState<BillingSession[]>([]);
 
-  const activeSessions: BillingSession[] = tables
-    .filter(t => t.status !== 'available')
-    .map(t => ({
-      ...t,
-      runningTotal: sessionData[t.number]?.runningTotal || 0,
-      items: sessionData[t.number]?.items || 0,
-      startTime: sessionData[t.number]?.startTime || '',
-    }));
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('tables').select('id, table_code, seats, status, current_session_id, table_sessions(started_at, bills(subtotal, total))').neq('status', 'available').order('table_code');
+      setTables((data || []).map(table => {
+        const session = Array.isArray(table.table_sessions) ? table.table_sessions[0] : table.table_sessions;
+        const bill = session && (Array.isArray(session.bills) ? session.bills[0] : session.bills);
+        return { id: table.id, number: Number.parseInt(table.table_code, 10), seats: table.seats, status: table.status, currentSessionId: table.current_session_id, guests: 0, serverName: '', runningTotal: Number(bill?.total || 0), items: 0, startTime: session?.started_at ? new Date(session.started_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '' } as BillingSession;
+      }));
+    };
+    void load();
+    const channel = supabase.channel('billing-dashboard').on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => { void load(); }).on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, () => { void load(); }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
+
+  const activeSessions = tables.filter(t => t.status !== 'available');
 
   const totalRevenue = activeSessions.reduce((sum, s) => sum + s.runningTotal, 0);
   const billRequested = activeSessions.filter(s => s.status === 'bill_requested').length;

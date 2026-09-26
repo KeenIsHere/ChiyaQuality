@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { Search, Plus, Minus, StickyNote, Trash2, ShoppingCart, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Plus, StickyNote, Trash2, ShoppingCart, ArrowRight } from 'lucide-react';
 import type { MenuItem, OrderItem, Table } from '@/types';
-import { menuItems, menuCategories } from '@/data';
 import { formatCurrency } from '@/lib/status';
 import { QuantityStepper } from '@/components/ui/QuantityStepper';
 import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   table: Table;
@@ -12,13 +12,34 @@ interface Props {
 }
 
 export function OrderScreen({ table, onProceedToReview }: Props) {
-  const [activeCategory, setActiveCategory] = useState(menuCategories[0]);
+  const [menuCategories, setMenuCategories] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState('');
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [search, setSearch] = useState('');
-  const [cart, setCart] = useState<OrderItem[]>([
-    { id: 'oi1', menuItemId: 'm1', name: 'Milk Tea', price: 45, quantity: 2, notes: '' },
-    { id: 'oi2', menuItemId: 'm6', name: 'Steamed Momo', price: 140, quantity: 1, notes: 'Extra sesame sauce' },
-  ]);
+  const [cart, setCart] = useState<OrderItem[]>([]);
   const [notesModalItem, setNotesModalItem] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: categories }, { data: items }] = await Promise.all([
+        supabase.from('categories').select('name').order('display_order'),
+        supabase.from('menu_items').select('id, name, description, price, image_url, is_available, categories(name)').eq('is_available', true).order('name'),
+      ]);
+      const names = (categories || []).map(category => category.name);
+      setMenuCategories(names);
+      setActiveCategory(current => current || names[0] || '');
+      setMenuItems((items || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description || '',
+        price: Number(item.price),
+        category: Array.isArray(item.categories) && item.categories[0] ? (item.categories[0] as { name?: string }).name || '' : '',
+        image: item.image_url || '',
+        available: item.is_available,
+      })));
+    };
+    void load();
+  }, []);
 
   const items = menuItems.filter(m => {
     if (!m.available) return false;

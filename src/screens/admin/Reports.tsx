@@ -1,24 +1,40 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, Calendar, TrendingUp, Utensils, Clock, XCircle, DollarSign } from 'lucide-react';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
-
-const salesData = [
-  { day: 'Mon', val: 55 }, { day: 'Tue', val: 70 }, { day: 'Wed', val: 65 },
-  { day: 'Thu', val: 80 }, { day: 'Fri', val: 95 }, { day: 'Sat', val: 100 }, { day: 'Sun', val: 60 },
-];
-
-const itemBreakdown = [
-  { name: 'Steamed Momo', count: 156, revenue: 21840, pct: 100 },
-  { name: 'Milk Tea', count: 240, revenue: 10800, pct: 49 },
-  { name: 'Chicken Chowmein', count: 82, revenue: 9840, pct: 45 },
-  { name: 'Chilli Momo', count: 56, revenue: 10080, pct: 46 },
-  { name: 'Dal Bhat Tarkari', count: 64, revenue: 9600, pct: 44 },
-  { name: 'Cappuccino', count: 48, revenue: 4320, pct: 20 },
-];
+import { supabase } from '@/lib/supabase';
 
 export function Reports() {
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('7d');
+  const [metrics, setMetrics] = useState({ revenue: 0, orders: 0, average: 0, cancellations: 0, prepMinutes: 0 });
+  const [itemBreakdown, setItemBreakdown] = useState<{ name: string; count: number; revenue: number; pct: number }[]>([]);
+  const [salesData, setSalesData] = useState<{ day: string; val: number }[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+      const from = new Date(); from.setDate(from.getDate() - days);
+      const [{ data: bills }, { data: orders }, { data: orderItems }] = await Promise.all([
+        supabase.from('bills').select('total, paid_at').eq('status', 'paid').gte('paid_at', from.toISOString()),
+        supabase.from('orders').select('status, confirmed_at, ready_at, placed_at').gte('placed_at', from.toISOString()),
+        supabase.from('order_items').select('quantity, menu_items(name, price), orders!inner(status, placed_at)').gte('orders.placed_at', from.toISOString()).in('orders.status', ['confirmed', 'preparing', 'ready', 'served']),
+      ]);
+      const revenue = (bills || []).reduce((sum, bill) => sum + Number(bill.total), 0);
+      const completed = (orders || []).filter(order => ['confirmed', 'preparing', 'ready', 'served'].includes(order.status));
+      const prepOrders = (orders || []).filter(order => order.confirmed_at && order.ready_at);
+      const prepMinutes = prepOrders.length ? Math.round(prepOrders.reduce((sum, order) => sum + (new Date(order.ready_at).getTime() - new Date(order.confirmed_at).getTime()) / 60000, 0) / prepOrders.length) : 0;
+      setMetrics({ revenue, orders: completed.length, average: completed.length ? Math.round(revenue / completed.length) : 0, cancellations: (orders || []).filter(order => ['cancelled', 'rejected'].includes(order.status)).length, prepMinutes });
+      const grouped = new Map<string, { count: number; revenue: number }>();
+      (orderItems || []).forEach(item => { const menu = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items; if (!menu) return; const current = grouped.get(menu.name) || { count: 0, revenue: 0 }; current.count += item.quantity; current.revenue += item.quantity * Number(menu.price); grouped.set(menu.name, current); });
+      const top = [...grouped.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 6);
+      const max = top[0]?.[1].revenue || 1;
+      setItemBreakdown(top.map(([name, value]) => ({ name, ...value, pct: Math.round(value.revenue / max * 100) })));
+      const daily = Array.from({ length: Math.min(days, 7) }, (_, index) => { const date = new Date(); date.setDate(date.getDate() - (Math.min(days, 7) - 1 - index)); return { day: date.toLocaleDateString([], { weekday: 'short' }), val: 0, date: date.toDateString() }; });
+      (bills || []).forEach(bill => { const day = daily.find(entry => entry.date === new Date(bill.paid_at).toDateString()); if (day) day.val += Number(bill.total); });
+      const maxDaily = Math.max(...daily.map(day => day.val), 1); setSalesData(daily.map(({ day, val }) => ({ day, val: Math.round(val / maxDaily * 100) })));
+    };
+    void load();
+  }, [range]);
 
   return (
     <div className="px-4 lg:px-6 py-4 max-w-4xl mx-auto">
@@ -41,10 +57,10 @@ export function Reports() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         {[
-          { label: 'Total Revenue', value: formatCurrency(148200), change: '+12.5%', icon: DollarSign, color: 'text-status-available', bg: 'bg-status-available-bg' },
-          { label: 'Total Orders', value: '542', change: '+38', icon: TrendingUp, color: 'text-status-ready', bg: 'bg-status-ready-bg' },
-          { label: 'Avg Order Value', value: formatCurrency(274), change: '+Rs. 12', icon: Utensils, color: 'text-status-occupied', bg: 'bg-status-occupied-bg' },
-          { label: 'Cancellations', value: '8', change: '1.5%', icon: XCircle, color: 'text-status-cancelled', bg: 'bg-status-cancelled-bg' },
+          { label: 'Total Revenue', value: formatCurrency(metrics.revenue), change: '', icon: DollarSign, color: 'text-status-available', bg: 'bg-status-available-bg' },
+          { label: 'Total Orders', value: String(metrics.orders), change: '', icon: TrendingUp, color: 'text-status-ready', bg: 'bg-status-ready-bg' },
+          { label: 'Avg Order Value', value: formatCurrency(metrics.average), change: '', icon: Utensils, color: 'text-status-occupied', bg: 'bg-status-occupied-bg' },
+          { label: 'Cancellations', value: String(metrics.cancellations), change: '', icon: XCircle, color: 'text-status-cancelled', bg: 'bg-status-cancelled-bg' },
         ].map(card => {
           const Icon = card.icon;
           return (
@@ -105,13 +121,10 @@ export function Reports() {
             <Clock className="w-5 h-5 text-status-occupied" />
             <h2 className="text-sm font-semibold text-neutral-800">Average Prep Time</h2>
           </div>
-          <p className="text-3xl font-bold text-neutral-800">14<span className="text-lg text-neutral-500"> min</span></p>
-          <p className="text-xs text-status-available font-medium mt-1">2 min faster than last week</p>
+          <p className="text-3xl font-bold text-neutral-800">{metrics.prepMinutes}<span className="text-lg text-neutral-500"> min</span></p>
+          <p className="text-xs text-neutral-500 font-medium mt-1">Average confirmed-to-ready time</p>
           <div className="mt-3 space-y-1.5">
-            <div className="flex justify-between text-xs"><span className="text-neutral-500">Momo</span><span className="text-neutral-700">12 min</span></div>
-            <div className="flex justify-between text-xs"><span className="text-neutral-500">Chowmein</span><span className="text-neutral-700">10 min</span></div>
-            <div className="flex justify-between text-xs"><span className="text-neutral-500">Dal Bhat</span><span className="text-neutral-700">18 min</span></div>
-            <div className="flex justify-between text-xs"><span className="text-neutral-500">Beverages</span><span className="text-neutral-700">4 min</span></div>
+            <div className="flex justify-between text-xs"><span className="text-neutral-500">Based on ready orders</span><span className="text-neutral-700">{metrics.prepMinutes} min</span></div>
           </div>
         </div>
 
