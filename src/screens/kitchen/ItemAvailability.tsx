@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Search, PackageX, UtensilsCrossed } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 import type { MenuItem } from '@/types';
 

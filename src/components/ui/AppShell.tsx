@@ -2,7 +2,8 @@ import { type ReactNode } from 'react';
 import { Coffee, ArrowLeft, LogOut } from 'lucide-react';
 import { NotificationBell } from '@/components/ui/NotificationBell';
 import type { Role, Notification } from '@/types';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 
 export interface NavItem {
   key: string;

@@ -10,6 +10,12 @@ export function Reports() {
   const [itemBreakdown, setItemBreakdown] = useState<{ name: string; count: number; revenue: number; pct: number }[]>([]);
   const [salesData, setSalesData] = useState<{ day: string; val: number }[]>([]);
 
+  const exportReport = () => {
+    const rows = [['Metric', 'Value'], ['Revenue', String(metrics.revenue)], ['Orders', String(metrics.orders)], ['Average order value', String(metrics.average)], ['Cancellations', String(metrics.cancellations)], ['Average prep minutes', String(metrics.prepMinutes)], ...itemBreakdown.map(item => [`Item: ${item.name}`, `${item.count} portions, ${item.revenue}`])];
+    const csv = rows.map(row => row.map(value => `"${value.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); const link = document.createElement('a'); link.href = url; link.download = `chiyaquality-report-${range}.csv`; link.click(); URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     const load = async () => {
       const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
@@ -43,7 +49,7 @@ export function Reports() {
           <h1 className="text-page-title text-neutral-800">Reports & Analytics</h1>
           <p className="text-sm text-neutral-500 mt-0.5">Performance insights for your restaurant</p>
         </div>
-        <Button variant="secondary" size="sm"><Download className="w-4 h-4" /> Export</Button>
+        <Button variant="secondary" size="sm" onClick={exportReport}><Download className="w-4 h-4" /> Export</Button>
       </div>
 
       <div className="flex items-center gap-2 mb-5">

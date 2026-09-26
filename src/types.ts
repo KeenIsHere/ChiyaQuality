@@ -58,7 +58,7 @@ export interface KitchenOrder {
 export interface CustomerCart {
   id: string;
   tableNumber: number;
-  items: { name: string; quantity: number; price: number }[];
+  items: { id?: string; menuItemId?: string; name: string; quantity: number; price: number }[];
   total: number;
   status: CustomerCartStatus;
   submittedAt: string;

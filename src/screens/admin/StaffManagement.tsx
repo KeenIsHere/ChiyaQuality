@@ -3,7 +3,8 @@ import { Plus, Trash2, UserCog, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import type { Role, StaffAccount } from '@/types';
 import { supabase } from '@/lib/supabase';
 

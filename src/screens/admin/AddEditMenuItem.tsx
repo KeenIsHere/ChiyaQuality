@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Upload, ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 
 interface Props {
@@ -16,6 +17,9 @@ export function AddEditMenuItem({ itemId, onBack }: Props) {
   const [price, setPrice] = useState('');
   const [category, setCategory] = useState('');
   const [available, setAvailable] = useState(true);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState('');
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, closeToast } = useToast();
 
   const isEdit = !!itemId;
@@ -27,9 +31,9 @@ export function AddEditMenuItem({ itemId, onBack }: Props) {
       setCategories(categoryRows || []);
       if (categoryRows?.[0]) setCategory(current => current || categoryRows[0].id);
       if (itemId) {
-        const { data: item, error } = await supabase.from('menu_items').select('name, description, price, category_id, is_available').eq('id', itemId).single();
+        const { data: item, error } = await supabase.from('menu_items').select('name, description, price, category_id, is_available, image_url').eq('id', itemId).single();
         if (error) { showToast('error', error.message); return; }
-        setName(item.name); setDescription(item.description || ''); setPrice(String(item.price)); setCategory(item.category_id || ''); setAvailable(item.is_available);
+        setName(item.name); setDescription(item.description || ''); setPrice(String(item.price)); setCategory(item.category_id || ''); setAvailable(item.is_available); setImageUrl(item.image_url || '');
       }
     };
     void load();
@@ -40,7 +44,14 @@ export function AddEditMenuItem({ itemId, onBack }: Props) {
       showToast('error', 'Please fill in the item name and price.');
       return;
     }
-    const payload = { name: name.trim(), description: description.trim() || null, price: Number(price), category_id: category || null, is_available: available };
+    let nextImageUrl = imageUrl;
+    if (imageFile) {
+      const path = `menu-${Date.now()}-${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, '-')}`;
+      const { error: uploadError } = await supabase.storage.from('menu-images').upload(path, imageFile, { upsert: true, contentType: imageFile.type });
+      if (uploadError) { showToast('error', uploadError.message); return; }
+      nextImageUrl = supabase.storage.from('menu-images').getPublicUrl(path).data.publicUrl;
+    }
+    const payload = { name: name.trim(), description: description.trim() || null, price: Number(price), category_id: category || null, is_available: available, image_url: nextImageUrl || null };
     const result = itemId
       ? await supabase.from('menu_items').update(payload).eq('id', itemId)
       : await supabase.from('menu_items').insert(payload);
@@ -61,11 +72,12 @@ export function AddEditMenuItem({ itemId, onBack }: Props) {
       <div className="space-y-4 animate-slide-up">
         <div>
           <label className="block text-xs font-medium text-neutral-600 mb-1.5">Item Image</label>
-          <div className="border-2 border-dashed border-neutral-300 rounded-xl p-6 text-center hover:border-brand-400 transition-colors cursor-pointer">
+          <div className="border-2 border-dashed border-neutral-300 rounded-xl p-6 text-center hover:border-brand-400 transition-colors cursor-pointer" onClick={() => imageInputRef.current?.click()}>
+            <input ref={imageInputRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={event => setImageFile(event.target.files?.[0] || null)} />
             <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center mx-auto mb-2 text-neutral-400">
               <ImageIcon className="w-6 h-6" />
             </div>
-            <p className="text-sm text-neutral-500">Tap to upload an image</p>
+            <p className="text-sm text-neutral-500">{imageFile?.name || (imageUrl ? 'Current image selected' : 'Tap to upload an image')}</p>
             <p className="text-xs text-neutral-400 mt-0.5">PNG or JPG, max 2MB</p>
             <Button variant="secondary" size="sm" className="mt-3">
               <Upload className="w-3.5 h-3.5" /> Choose File

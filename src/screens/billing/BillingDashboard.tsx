@@ -21,11 +21,13 @@ export function BillingDashboard({ onSelectTable }: Props) {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.from('tables').select('id, table_code, seats, status, current_session_id, table_sessions(started_at, bills(subtotal, total))').neq('status', 'available').order('table_code');
+      const { data } = await supabase.from('tables').select('id, table_code, seats, status, current_session_id, table_sessions(started_at, bills(subtotal, total), orders(order_items(quantity)))').neq('status', 'available').order('table_code');
       setTables((data || []).map(table => {
         const session = Array.isArray(table.table_sessions) ? table.table_sessions[0] : table.table_sessions;
         const bill = session && (Array.isArray(session.bills) ? session.bills[0] : session.bills);
-        return { id: table.id, number: Number.parseInt(table.table_code, 10), seats: table.seats, status: table.status, currentSessionId: table.current_session_id, guests: 0, serverName: '', runningTotal: Number(bill?.total || 0), items: 0, startTime: session?.started_at ? new Date(session.started_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '' } as BillingSession;
+        const orders = session && (Array.isArray(session.orders) ? session.orders : []);
+        const itemCount = orders.reduce((sum, order) => sum + (order.order_items || []).reduce((inner, item) => inner + Number(item.quantity || 0), 0), 0);
+        return { id: table.id, number: Number.parseInt(table.table_code, 10), seats: table.seats, status: table.status, currentSessionId: table.current_session_id, guests: 0, serverName: '', runningTotal: Number(bill?.total || 0), items: itemCount, startTime: session?.started_at ? new Date(session.started_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '' } as BillingSession;
       }));
     };
     void load();

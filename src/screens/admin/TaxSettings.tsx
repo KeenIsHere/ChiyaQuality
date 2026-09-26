@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Percent, Save, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 
 export function TaxSettings() {

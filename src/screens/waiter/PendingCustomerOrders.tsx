@@ -5,18 +5,20 @@ import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 
 export function PendingCustomerOrders() {
   const [carts, setCarts] = useState<CustomerCart[]>([]);
   const [rejectModal, setRejectModal] = useState<CustomerCart | null>(null);
+  const [editCart, setEditCart] = useState<CustomerCart | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const { toasts, showToast, closeToast } = useToast();
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('orders').select('id, status, placed_at, table_sessions(tables(table_code)), order_items(quantity, notes, menu_items(name, price))').eq('status', 'pending_confirmation').order('placed_at');
+      const { data, error } = await supabase.from('orders').select('id, status, placed_at, table_sessions(tables(table_code)), order_items(id, menu_item_id, quantity, notes, menu_items(name, price))').eq('status', 'pending_confirmation').order('placed_at');
       if (error) { showToast('error', error.message); return; }
       setCarts((data || []).map(order => {
         const session = Array.isArray(order.table_sessions) ? order.table_sessions[0] : order.table_sessions;
@@ -26,7 +28,7 @@ export function PendingCustomerOrders() {
           tableNumber: Number.parseInt(table?.table_code || '0', 10),
           items: (order.order_items || []).map(item => {
             const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
-            return { name: menuItem?.name || 'Menu item', quantity: item.quantity, price: Number(menuItem?.price || 0) };
+            return { id: item.id, menuItemId: item.menu_item_id, name: menuItem?.name || 'Menu item', quantity: item.quantity, price: Number(menuItem?.price || 0) };
           }),
           total: (order.order_items || []).reduce((sum, item) => {
             const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
@@ -117,7 +119,7 @@ export function PendingCustomerOrders() {
                   <Button variant="success" size="md" fullWidth onClick={() => handleAccept(cart)}>
                     <Check className="w-4 h-4" /> Accept
                   </Button>
-                  <Button variant="secondary" size="md" onClick={() => showToast('info', 'Edit feature would open the order screen')}>
+                  <Button variant="secondary" size="md" onClick={() => setEditCart(cart)}>
                     <Edit className="w-4 h-4" /> Edit
                   </Button>
                   <Button variant="danger" size="md" onClick={() => setRejectModal(cart)}>
@@ -158,6 +160,26 @@ export function PendingCustomerOrders() {
               className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-300 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
             />
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!editCart} onClose={() => setEditCart(null)} title={`Edit Table ${editCart?.tableNumber} Order`} footer={<><Button variant="secondary" onClick={() => setEditCart(null)}>Cancel</Button><Button onClick={async () => {
+        if (!editCart) return;
+        for (const item of editCart.items) {
+          if (!item.id) continue;
+          if (item.quantity <= 0) await supabase.from('order_items').delete().eq('id', item.id);
+          else await supabase.from('order_items').update({ quantity: item.quantity }).eq('id', item.id);
+        }
+        showToast('success', 'Customer order updated.'); setEditCart(null);
+      }}>Save Changes</Button></>}
+      >
+        <div className="space-y-3">
+          {editCart?.items.map(item => (
+            <div key={item.id || item.name} className="flex items-center justify-between gap-3">
+              <span className="text-sm text-neutral-700">{item.name}</span>
+              <input type="number" min="0" value={item.quantity} onChange={event => setEditCart(current => current ? { ...current, items: current.items.map(entry => entry.id === item.id ? { ...entry, quantity: Number(event.target.value) } : entry) } : current)} className="w-20 px-2 py-2 rounded-lg border border-neutral-300 text-sm" />
+            </div>
+          ))}
         </div>
       </Modal>
 

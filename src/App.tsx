@@ -66,6 +66,7 @@ export default function App() {
   const [customerCart, setCustomerCart] = useState<{ item: MenuItem; qty: number }[]>([]);
   const [customerRejected, setCustomerRejected] = useState<string | undefined>(undefined);
   const [customerOrderId, setCustomerOrderId] = useState<string | undefined>(undefined);
+  const [customerTableNumber, setCustomerTableNumber] = useState(7);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured && !window.location.pathname.startsWith('/menu/'));
 
   useEffect(() => {
@@ -91,6 +92,15 @@ export default function App() {
       else { setSession(null); setAuthLoading(false); }
     });
     return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!window.location.pathname.startsWith('/menu/')) return;
+    const token = window.location.pathname.split('/menu/')[1];
+    void supabase.rpc('get_table_by_qr_token', { p_qr_token: token }).then(({ data }) => {
+      const table = Array.isArray(data) ? data[0] : data;
+      if (table?.table_code) setCustomerTableNumber(Number.parseInt(table.table_code, 10) || 0);
+    });
   }, []);
 
   const handleLogin = (role: Role, name: string) => {
@@ -123,6 +133,7 @@ export default function App() {
         onNavigate={setActiveScreen}
         onExit={handleLogout}
         setRejectedReason={setCustomerRejected}
+        tableNumber={customerTableNumber}
         orderId={customerOrderId}
         onSubmitOrder={async cart => {
           if (!isSupabaseConfigured) {
@@ -211,7 +222,22 @@ export default function App() {
         break;
       case 'payment-qr':
         content = selectedTable ? (
-          <PaymentQRScreen table={selectedTable} onBack={() => setActiveScreen('table-map')} />
+          <PaymentQRScreen
+            table={selectedTable}
+            onBack={() => setActiveScreen('table-map')}
+            onMarkPaid={async () => {
+              const sessionId = selectedTable.currentSessionId;
+              if (!sessionId) throw new Error('This table has no active billing session.');
+              const paidAt = new Date().toISOString();
+              const { error: billError } = await supabase.from('bills').update({ payment_method: 'qr', status: 'paid', paid_at: paidAt }).eq('table_session_id', sessionId);
+              if (billError) throw billError;
+              const { error: sessionError } = await supabase.from('table_sessions').update({ status: 'closed', ended_at: paidAt }).eq('id', sessionId);
+              if (sessionError) throw sessionError;
+              const { error: tableError } = await supabase.from('tables').update({ status: 'available', current_session_id: null }).eq('id', selectedTable.id);
+              if (tableError) throw tableError;
+              setActiveScreen('table-map');
+            }}
+          />
         ) : null;
         break;
       default:
@@ -343,10 +369,10 @@ interface CustomerFlowProps {
   setRejectedReason: (reason: string | undefined) => void;
   orderId?: string;
   onSubmitOrder: (cart: { item: MenuItem; qty: number; notes?: string }[]) => Promise<void>;
+  tableNumber: number;
 }
 
-function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExit, setRejectedReason, orderId, onSubmitOrder }: CustomerFlowProps) {
-  const tableNumber = 7;
+function CustomerFlow({ screen, cart, setCart, rejectedReason, onNavigate, onExit, setRejectedReason, orderId, onSubmitOrder, tableNumber }: CustomerFlowProps) {
 
   switch (screen) {
     case 'customer-menu':

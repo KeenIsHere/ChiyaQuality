@@ -18,15 +18,16 @@ The anon/publishable key is safe for browser use when Row Level Security is enab
 1. Open Supabase Dashboard > SQL Editor.
 2. Run `supabase/migrations/001_chiyaquality_foundation.sql`.
 3. Run `supabase/migrations/002_seed_chiyaquality_catalog.sql` to add the starter categories, menu, and tables.
-4. In Authentication > Users, create the first staff user with email/password.
-5. Insert its profile from the SQL Editor, replacing the UUID and name:
+4. Run `supabase/migrations/003_workflow_hardening.sql` to add QR lookup and availability validation.
+5. In Authentication > Users, create the first staff user with email/password.
+6. Insert its profile from the SQL Editor, replacing the UUID and name:
 
 ```sql
 insert into public.profiles (id, full_name, role)
 values ('AUTH_USER_UUID', 'Restaurant Admin', 'admin');
 ```
 
-6. Deploy `supabase/functions/create-staff-user` with the Supabase CLI before using Admin > Staff Management:
+7. Deploy `supabase/functions/create-staff-user` with the Supabase CLI before using Admin > Staff Management:
 
 ```sh
 supabase functions deploy create-staff-user

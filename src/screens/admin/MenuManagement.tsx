@@ -4,7 +4,8 @@ import { formatCurrency } from '@/lib/status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 import type { MenuItem } from '@/types';
 

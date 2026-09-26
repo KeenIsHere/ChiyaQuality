@@ -3,7 +3,8 @@ import { Clock, ChefHat, CheckCircle2, Utensils, AlertTriangle } from 'lucide-re
 import type { KitchenOrder } from '@/types';
 import { orderStatusConfig } from '@/lib/status';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 
 export function KOTQueue() {

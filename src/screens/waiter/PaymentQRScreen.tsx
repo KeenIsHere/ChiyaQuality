@@ -8,11 +8,14 @@ import { supabase } from '@/lib/supabase';
 interface Props {
   table: Table;
   onBack: () => void;
+  onMarkPaid: () => Promise<void>;
 }
 
-export function PaymentQRScreen({ table, onBack }: Props) {
+export function PaymentQRScreen({ table, onBack, onMarkPaid }: Props) {
   const [bill, setBill] = useState({ subtotal: 0, tax: 0, service_charge: 0, total: 0 });
   const [paymentQrUrl, setPaymentQrUrl] = useState('');
+  const [markingPaid, setMarkingPaid] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!table.currentSessionId) return;
@@ -30,6 +33,11 @@ export function PaymentQRScreen({ table, onBack }: Props) {
     }).subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [table.currentSessionId]);
+
+  const markPaid = async () => {
+    setMarkingPaid(true); setError('');
+    try { await onMarkPaid(); } catch (markError) { setError(markError instanceof Error ? markError.message : 'Unable to mark bill paid.'); setMarkingPaid(false); }
+  };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8 bg-neutral-50">
@@ -61,9 +69,15 @@ export function PaymentQRScreen({ table, onBack }: Props) {
           <div className="flex justify-between text-sm font-semibold text-neutral-800 pt-1.5 border-t border-neutral-200"><span>Total</span><span>{formatCurrency(bill.total)}</span></div>
         </div>
 
+        {error && <p className="text-sm text-status-cancelled mb-3">{error}</p>}
+        <div className="space-y-2">
+        <Button fullWidth variant="success" disabled={markingPaid || bill.total <= 0} onClick={markPaid}>
+          {markingPaid ? 'Updating...' : 'Mark Paid by QR'}
+        </Button>
         <Button fullWidth variant="secondary" onClick={onBack}>
           <RotateCw className="w-4 h-4" /> Back to Tables
         </Button>
+        </div>
       </div>
 
       <p className="text-xs text-neutral-400 mt-4 text-center max-w-xs">

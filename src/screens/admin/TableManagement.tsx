@@ -5,9 +5,11 @@ import { TableStatusBadge } from '@/components/ui/TableStatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import type { Table } from '@/types';
 import { supabase } from '@/lib/supabase';
+import QRCode from 'qrcode';
 
 export function TableManagement() {
   const [tables, setTables] = useState<Table[]>([]);
@@ -15,7 +17,13 @@ export function TableManagement() {
   const [addModal, setAddModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState<Table | null>(null);
   const [newSeats, setNewSeats] = useState('4');
+  const [qrImage, setQrImage] = useState('');
   const { toasts, showToast, closeToast } = useToast();
+
+  useEffect(() => {
+    if (!qrModal?.qrToken) { setQrImage(''); return; }
+    void QRCode.toDataURL(`${window.location.origin}/menu/${qrModal.qrToken}`, { width: 512, margin: 2 }).then(setQrImage);
+  }, [qrModal]);
 
   useEffect(() => {
     const load = async () => {
@@ -97,14 +105,14 @@ export function TableManagement() {
       <Modal open={!!qrModal} onClose={() => setQrModal(null)} title={`Table ${qrModal?.number} — QR Code`} size="sm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => showToast('info', 'Printing...')}><Printer className="w-4 h-4" /> Print</Button>
-            <Button onClick={() => showToast('success', 'QR code downloaded.')}> <Download className="w-4 h-4" /> Download</Button>
+            <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>
+            <Button disabled={!qrImage} onClick={() => { const link = document.createElement('a'); link.href = qrImage; link.download = `table-${qrModal?.number}-qr.png`; link.click(); }}> <Download className="w-4 h-4" /> Download</Button>
           </>
         }
       >
         <div className="flex flex-col items-center py-4">
           <div className="w-48 h-48 bg-white border-4 border-neutral-200 rounded-2xl flex items-center justify-center">
-            <QrCode className="w-36 h-36 text-neutral-800" strokeWidth={1.5} />
+            {qrImage ? <img src={qrImage} alt={`Table ${qrModal?.number} customer QR`} className="w-36 h-36" /> : <QrCode className="w-36 h-36 text-neutral-800" strokeWidth={1.5} />}
           </div>
           <p className="text-sm font-semibold text-neutral-800 mt-4">Table {qrModal?.number}</p>
           <p className="text-xs text-neutral-500 mt-1">Scan to view menu and place order</p>

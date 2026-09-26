@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info';
@@ -59,17 +59,3 @@ export function ToastContainer({ toasts, onClose }: { toasts: ToastData[]; onClo
   );
 }
 
-export function useToast() {
-  const [toasts, setToasts] = useState<ToastData[]>([]);
-
-  const showToast = useCallback((type: ToastType, message: string) => {
-    const id = Date.now().toString() + Math.random().toString(36).slice(2);
-    setToasts(prev => [...prev, { id, type, message }]);
-  }, []);
-
-  const closeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  return { toasts, showToast, closeToast };
-}

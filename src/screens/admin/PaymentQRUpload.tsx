@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Upload, QrCode, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import { supabase } from '@/lib/supabase';
 
 export function PaymentQRUpload() {

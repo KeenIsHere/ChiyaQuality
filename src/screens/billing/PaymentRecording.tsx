@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Banknote, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/status';
 import { Button } from '@/components/ui/Button';
-import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/useToast';
 import type { PaymentMethod } from '@/types';
 import { supabase } from '@/lib/supabase';
 

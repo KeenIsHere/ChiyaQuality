@@ -3,17 +3,12 @@ import {
   ArrowRight, Clock, AlertCircle
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/status';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface Props {
   onQuickLink: (key: string) => void;
 }
-
-const summaryCards = [
-  { label: "Today's Revenue", value: 'Rs. 24,850', change: '+12.5%', icon: TrendingUp, color: 'text-status-available', bg: 'bg-status-available-bg' },
-  { label: 'Orders Today', value: '87', change: '+8', icon: Receipt, color: 'text-status-ready', bg: 'bg-status-ready-bg' },
-  { label: 'Active Tables', value: '9 / 12', change: '75%', icon: Users, color: 'text-status-occupied', bg: 'bg-status-occupied-bg' },
-  { label: 'Avg Prep Time', value: '14 min', change: '-2 min', icon: Clock, color: 'text-neutral-600', bg: 'bg-neutral-100' },
-];
 
 const topItems = [
   { name: 'Steamed Momo', count: 34, revenue: 4760 },
@@ -33,6 +28,21 @@ const quickLinks: { key: string; label: string; icon: typeof Utensils; desc: str
 ];
 
 export function AdminDashboard({ onQuickLink }: Props) {
+  const [metrics, setMetrics] = useState({ revenue: 0, orders: 0, activeTables: 0 });
+  useEffect(() => {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    void Promise.all([
+      supabase.from('bills').select('total').eq('status', 'paid').gte('paid_at', start.toISOString()),
+      supabase.from('orders').select('id').gte('placed_at', start.toISOString()),
+      supabase.from('tables').select('id').neq('status', 'available'),
+    ]).then(([bills, orders, tables]) => setMetrics({ revenue: (bills.data || []).reduce((sum, bill) => sum + Number(bill.total), 0), orders: orders.data?.length || 0, activeTables: tables.data?.length || 0 }));
+  }, []);
+  const summaryCards = [
+    { label: "Today's Revenue", value: formatCurrency(metrics.revenue), change: '', icon: TrendingUp, color: 'text-status-available', bg: 'bg-status-available-bg' },
+    { label: 'Orders Today', value: String(metrics.orders), change: '', icon: Receipt, color: 'text-status-ready', bg: 'bg-status-ready-bg' },
+    { label: 'Active Tables', value: String(metrics.activeTables), change: '', icon: Users, color: 'text-status-occupied', bg: 'bg-status-occupied-bg' },
+    { label: 'Avg Prep Time', value: 'See reports', change: '', icon: Clock, color: 'text-neutral-600', bg: 'bg-neutral-100' },
+  ];
   return (
     <div className="px-4 lg:px-6 py-4 max-w-6xl mx-auto">
       <div className="mb-4">

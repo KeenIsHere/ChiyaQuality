@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock, ChefHat, CheckCircle2, Coffee, RefreshCw } from 'lucide-react';
+import { Clock, ChefHat, CheckCircle2, Coffee, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
@@ -10,13 +10,15 @@ interface Props {
 }
 
 export function CustomerOrderStatus({ tableNumber, orderId, onResubmit }: Props) {
-  const [status, setStatus] = useState<'pending' | 'confirmed'>('pending');
+  const [status, setStatus] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
+  const [reason, setReason] = useState('');
 
   useEffect(() => {
     if (isSupabaseConfigured && orderId) {
       let active = true;
       const loadOrder = async () => {
-        const { data } = await supabase.from('orders').select('status').eq('id', orderId).maybeSingle();
+        const { data } = await supabase.from('orders').select('status, cancel_reason').eq('id', orderId).maybeSingle();
+        if (active && data?.status === 'rejected') { setStatus('rejected'); setReason(data.cancel_reason || 'The waiter did not accept this order.'); }
         if (active && (data?.status === 'confirmed' || data?.status === 'preparing' || data?.status === 'ready' || data?.status === 'served')) {
           setStatus('confirmed');
         }
@@ -25,6 +27,7 @@ export function CustomerOrderStatus({ tableNumber, orderId, onResubmit }: Props)
       const channel = supabase
         .channel(`customer-order-${orderId}`)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, payload => {
+          if (payload.new.status === 'rejected') { setStatus('rejected'); setReason(payload.new.cancel_reason || 'The waiter did not accept this order.'); }
           if (payload.new.status === 'confirmed' || payload.new.status === 'preparing' || payload.new.status === 'ready' || payload.new.status === 'served') setStatus('confirmed');
         })
         .subscribe();
@@ -63,6 +66,12 @@ export function CustomerOrderStatus({ tableNumber, orderId, onResubmit }: Props)
             </div>
             <h1 className="text-xl font-semibold text-neutral-800 mb-1">Waiting for confirmation...</h1>
             <p className="text-sm text-neutral-500 text-center max-w-xs">Our waiter is reviewing your order. This usually takes less than a minute.</p>
+          </div>
+        ) : status === 'rejected' ? (
+          <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
+            <div className="w-24 h-24 mb-5 rounded-full bg-status-cancelled-bg flex items-center justify-center"><AlertCircle className="w-12 h-12 text-status-cancelled" /></div>
+            <h1 className="text-xl font-semibold text-neutral-800 mb-1">Order Rejected</h1>
+            <p className="text-sm text-status-cancelled text-center max-w-xs">{reason}</p>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
