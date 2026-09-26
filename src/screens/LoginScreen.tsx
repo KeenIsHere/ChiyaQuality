@@ -3,6 +3,8 @@ import { Coffee, Eye, EyeOff, ChevronRight } from 'lucide-react';
 import type { Role } from '@/types';
 import { staffAccounts } from '@/data';
 import { Button } from '@/components/ui/Button';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { signInStaff } from '@/lib/auth';
 
 interface Props {
   onLogin: (role: Role, name: string) => void;
@@ -33,13 +35,24 @@ export function LoginScreen({ onLogin }: Props) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRole) return;
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
+    if (isSupabaseConfigured && selectedRole !== 'customer') {
+      try {
+        const profile = await signInStaff(username.trim(), pin, selectedRole);
+        onLogin(profile.role, profile.full_name);
+      } catch (loginError) {
+        setError(loginError instanceof Error ? loginError.message : 'Unable to sign in.');
+        setLoading(false);
+      }
+      return;
+    }
+
+    window.setTimeout(() => {
       const account = staffAccounts.find(
         s => s.username === username.trim().toLowerCase() && s.pin === pin && s.role === selectedRole && s.active
       );
@@ -109,25 +122,25 @@ export function LoginScreen({ onLogin }: Props) {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-600 mb-1.5">Username</label>
+                    <label className="block text-xs font-medium text-neutral-600 mb-1.5">{isSupabaseConfigured ? 'Email' : 'Username'}</label>
                   <input
                     type="text"
                     value={username}
                     onChange={e => setUsername(e.target.value)}
-                    placeholder="e.g. ramesh"
+                      placeholder={isSupabaseConfigured ? 'staff@example.com' : 'e.g. ramesh'}
                     className="touch-target w-full px-4 py-3 rounded-xl border border-neutral-300 text-sm text-neutral-800 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
                     autoFocus
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-600 mb-1.5">PIN</label>
+                  <label className="block text-xs font-medium text-neutral-600 mb-1.5">{isSupabaseConfigured ? 'Password' : 'PIN'}</label>
                   <div className="relative">
                     <input
                       type={showPin ? 'text' : 'password'}
                       value={pin}
                       onChange={e => setPin(e.target.value)}
-                      placeholder="4-digit PIN"
-                      maxLength={4}
+                      placeholder={isSupabaseConfigured ? 'Your password' : '4-digit PIN'}
+                      maxLength={isSupabaseConfigured ? undefined : 4}
                       className="touch-target w-full px-4 py-3 pr-11 rounded-xl border border-neutral-300 text-sm text-neutral-800 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all tracking-widest"
                     />
                     <button
@@ -152,7 +165,7 @@ export function LoginScreen({ onLogin }: Props) {
               </Button>
 
               <p className="text-xs text-neutral-400 text-center mt-3">
-                Demo: credentials are pre-filled. Just press Sign In.
+                {isSupabaseConfigured ? 'Use the staff account created in Supabase Auth.' : 'Demo: credentials are pre-filled. Just press Sign In.'}
               </p>
             </form>
           )}
